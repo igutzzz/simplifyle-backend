@@ -1,4 +1,5 @@
 import { Server } from "socket.io";
+import { processFiles } from "../helpers/helpers";
 
 const configureSocket = (server: any) => {
   const io = new Server(server, {
@@ -7,7 +8,7 @@ const configureSocket = (server: any) => {
     },
   });
 
-  io.on("connection", (socket) => {
+  io.on("connection", async (socket) => {
     console.log("Usuário conectado:", socket.id);
 
     // createRoom -> backend -> cria sala e gera o codigo -> retorna o codigo para o front
@@ -39,28 +40,44 @@ const configureSocket = (server: any) => {
         }
         socket.join(roomId);
         console.log(`Socket ${socket.id} entrou na sala ${roomId}`);
-        socket.to(roomId).emit("receiverJoined", { roomId });
+        socket.to(roomId).emit("receiverJoined", { receiverId: socket.id });
         callback?.({ success: true });
       }
     );
 
     socket.on(
       "sendFile",
-      (
-        data: { roomId: string; file: any },
+      async (
+        data: { roomId: string; files: { name: string; data: ArrayBuffer }[] },
         callback?: (response: { success?: boolean; error?: string }) => void
       ) => {
-        const { roomId, file } = data;
-        const room = io.sockets.adapter.rooms.get(roomId);
-        if (!room) {
-          callback?.({ error: "Sala não encontrada" });
-          return;
+        try {
+          console.log("Recebendo arquivos do frontend:", data);
+
+          const { roomId, files } = data;
+
+          const room = io.sockets.adapter.rooms.get(roomId);
+          if (!room) {
+            callback?.({ error: "Sala não encontrada" });
+            return;
+          }
+
+          // Converte ArrayBuffer para Buffer antes de processar
+          const processedFiles = files.map((file) => ({
+            name: file.name,
+            data: Buffer.from(file.data),
+          }));
+
+          console.log("Arquivos processados:", processedFiles);
+
+          // Envia os arquivos processados para os clientes na sala
+          socket.to(roomId).emit("receiveFile", { files: processedFiles });
+
+          callback?.({ success: true });
+        } catch (error) {
+          console.error("Erro ao processar arquivos:", error);
+          callback?.({ error: "Erro ao processar arquivos" });
         }
-        console.log(
-          `Arquivo enviado na sala ${roomId} pelo socket ${socket.id}`
-        );
-        socket.to(roomId).emit("receiveFile", { file });
-        callback?.({ success: true });
       }
     );
 
